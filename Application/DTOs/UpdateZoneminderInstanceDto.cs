@@ -1,12 +1,6 @@
 ﻿namespace MonitoraUFF_API.Application.DTOs;
 
-public class ZoneminderDto
-{
-    public int Id { get; set; }
-    public string UrlServer { get; set; }
-}
-
-public class CreateZoneminderDto
+public class UpdateZoneminderInstanceDto
 {
     public string UrlServer { get; set; }
     public string User { get; set; }
