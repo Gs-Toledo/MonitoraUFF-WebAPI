@@ -5,7 +5,7 @@ namespace MonitoraUFF_API.Application.DTOs;
 public class ExportRequestDto
 {
     [Required]
-    public List<int> CameraIds { get; set; }
+    public List<CameraIdentifierDto> Cameras { get; set; }
 
     [Required]
     public DateTime StartDate { get; set; }

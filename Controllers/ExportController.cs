@@ -34,7 +34,7 @@ public class ExportController : ControllerBase
     [HttpPost("zip")]
     public async Task<IActionResult> ExportRecordingsAsZip([FromBody] ExportRequestDto request)
     {
-        if (request == null || !request.CameraIds.Any())
+        if (request == null || !request.Cameras.Any())
         {
             return BadRequest("A lista de IDs de câmera não pode ser vazia.");
         }
@@ -48,23 +48,28 @@ public class ExportController : ControllerBase
             // O terceiro argumento 'true' mantém o stream aberto para que possa ser lido depois.
             using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
             {
-                foreach (var cameraId in request.CameraIds)
+                foreach (var cameraIdentifier in request.Cameras)
                 {
-                    var camera = await _cameraRepository.GetByIdAsync(cameraId);
-                    if (camera == null)
-                    {
-                        _logger.LogWarning("Exportação pulou a câmera ID {CameraId} pois não foi encontrada.", cameraId);
-                        continue;
-                    }
-
-                    var instance = await _zoneminderRepository.GetByIdAsync(camera.ZoneminderInstanceId);
+                    var instance = await _zoneminderRepository.GetByIdAsync(cameraIdentifier.ZoneminderInstanceId);
                     if (instance == null)
                     {
-                        _logger.LogWarning("Exportação pulou a câmera {CameraName} pois sua instância ZM não foi encontrada.", camera.Name);
+                        _logger.LogWarning("Exportação pulou a câmera ID {CameraId} pois sua instância ZM (ID: {InstanceId}) não foi encontrada.",
+                            cameraIdentifier.CameraId, cameraIdentifier.ZoneminderInstanceId);
                         continue;
                     }
 
-                    // Busca TODAS as gravações para a câmera e filtra localmente.
+                    // Busca a câmera específica dentro da instância correta
+                    var camera = (await _cameraRepository.GetByZoneminderInstanceIdAsync(instance.Id))
+                                   .FirstOrDefault(c => c.Id == cameraIdentifier.CameraId);
+
+                    if (camera == null)
+                    {
+                        _logger.LogWarning("Exportação pulou a câmera ID {CameraId} pois não foi encontrada na instância {InstanceName} (ID: {InstanceId}).",
+                            cameraIdentifier.CameraId, instance.UrlServer, instance.Id);
+                        continue;
+                    }
+
+                    // Busca todas as gravações para a câmera e filtra localmente.
                     var allRecordings = await _zoneMinderService.GetRecordingsForMonitor(instance.UrlServer, instance.User, instance.Password, camera.Id, "");
 
                     var filteredRecordings = allRecordings.Where(r =>
