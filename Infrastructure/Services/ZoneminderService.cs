@@ -1,26 +1,22 @@
 ﻿using System.Text.Json;
 using MonitoraUFF_API.Application.DTOs;
+using MonitoraUFF_API.Core.Interfaces;
 
 
 namespace MonitoraUFF_API.Infrastructure.Services;
 
-public interface IZoneMinderService
-{
-    Task<List<RecordingDto>> GetRecordingsForMonitor(string baseUrl, string user, string password, int monitorId, string apiUrl);
-}
-
-public class ZoneMinderService : IZoneMinderService
+public class ZoneMinderClient : IZoneMinderService
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger<ZoneMinderService> _logger;
+    private readonly ILogger<ZoneMinderClient> _logger;
 
-    public ZoneMinderService(IHttpClientFactory httpClientFactory, ILogger<ZoneMinderService> logger)
+    public ZoneMinderClient(IHttpClientFactory httpClientFactory, ILogger<ZoneMinderClient> logger)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
-    public async Task<List<RecordingDto>> GetRecordingsForMonitor(string baseUrl, string user, string password, int monitorId, string apiUrl)
+    public async Task<List<RecordingDto>> GetRecordingsForMonitor(int instanceId, string baseUrl, string user, string password, int monitorId, string apiUrl)
     {
         var client = _httpClientFactory.CreateClient();
         var requestUrl = $"{baseUrl}/zm/api/events/index/MonitorId:{monitorId}.json?user={user}&pass={password}";
@@ -38,16 +34,19 @@ public class ZoneMinderService : IZoneMinderService
             var content = await response.Content.ReadFromJsonAsync<JsonElement>();
             var events = content.GetProperty("events").EnumerateArray();
 
-            return events.Select(e => new RecordingDto
+            return events.Select(e =>
             {
-                EventId = e.GetProperty("Event").GetProperty("Id").GetString(),
-                Name = e.GetProperty("Event").GetProperty("Name").GetString(),
-                StartTime = e.GetProperty("Event").GetProperty("StartTime").GetString(),
-                Length = e.GetProperty("Event").GetProperty("Length").GetString(),
-                Frames = int.Parse(e.GetProperty("Event").GetProperty("Frames").GetString()),
-                DownloadUrl = $"{apiUrl}/recordings/download/{e.GetProperty("Event").GetProperty("Id").GetString()}?baseUrl={baseUrl}&user={user}&pass={password}"
+                var eventId = e.GetProperty("Event").GetProperty("Id").GetString();
+                return new RecordingDto
+                {
+                    EventId = eventId,
+                    Name = e.GetProperty("Event").GetProperty("Name").GetString(),
+                    StartTime = e.GetProperty("Event").GetProperty("StartTime").GetString(),
+                    Length = e.GetProperty("Event").GetProperty("Length").GetString(),
+                    Frames = int.Parse(e.GetProperty("Event").GetProperty("Frames").GetString()),
+                    DownloadUrl = $"{apiUrl}/api/recordings/instance/{instanceId}/download/{eventId}"
+                };
             }).ToList();
-
         }
         catch (Exception ex)
         {

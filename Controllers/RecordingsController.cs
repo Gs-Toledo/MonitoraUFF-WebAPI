@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using MonitoraUFF_API.Application.DTOs;
 using MonitoraUFF_API.Core.Interfaces;
-using MonitoraUFF_API.Infrastructure.Services;
 
 namespace MonitoraUFF_API.Controllers;
 
@@ -22,42 +21,43 @@ public class RecordingsController : ControllerBase
         _httpClientFactory = httpClientFactory;
     }
 
-    [HttpGet("camera/{cameraId}")]
-    public async Task<ActionResult<IEnumerable<RecordingDto>>> GetRecordingsForCamera(int cameraId)
+    [HttpGet("instance/{instanceId}/camera/{cameraId}")]
+    public async Task<ActionResult<IEnumerable<RecordingDto>>> GetRecordingsForCamera(int instanceId, int cameraId)
     {
-        var camera = await _cameraRepository.GetByIdAsync(cameraId);
-        if (camera == null) return NotFound("Câmera não encontrada no banco de dados.");
+        var instance = await _zoneminderRepository.GetByIdAsync(instanceId);
+        if (instance == null) return NotFound("Instância do ZoneMinder não encontrada.");
 
-        var instance = await _zoneminderRepository.GetByIdAsync(camera.ZoneminderInstanceId);
-        if (instance == null) return NotFound("Instância do ZoneMinder associada à câmera não foi encontrada.");
+        // busca a camera dentro do escopo da instancia
+        var camera = (await _cameraRepository.GetByZoneminderInstanceIdAsync(instanceId))
+                       .FirstOrDefault(c => c.Id == cameraId);
+        if (camera == null) return NotFound("Câmera não encontrada nesta instância do ZoneMinder.");
 
-        // A URL da API que será usada para construir o link de download (testar no swagger, não sei se está certo)
         var apiUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}";
 
-        var recordings = await _zoneMinderService.GetRecordingsForMonitor(instance.UrlServer, instance.User, instance.Password, camera.Id, apiUrl);
+        var recordings = await _zoneMinderService.GetRecordingsForMonitor(instance.Id, instance.UrlServer, instance.User, instance.Password, camera.Id, apiUrl);
         return Ok(recordings);
     }
 
-    [HttpGet("download/{eventId}")]
-    public async Task<IActionResult> DownloadRecording(string eventId, [FromQuery] string baseUrl, [FromQuery] string user, [FromQuery] string pass)
+    [HttpGet("instance/{instanceId}/download/{eventId}")]
+    public async Task<IActionResult> DownloadRecording(int instanceId, string eventId)
     {
-        if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(eventId))
+        var instance = await _zoneminderRepository.GetByIdAsync(instanceId);
+        if (instance == null)
         {
-            return BadRequest("Parâmetros inválidos para download.");
+            return NotFound("Instância do ZoneMinder não encontrada para este download.");
         }
 
         var client = _httpClientFactory.CreateClient();
-        var zmUrl = $"{baseUrl}/zm/index.php?view=video&eid={eventId}&export=1&user={user}&pass={pass}";
+        var zmUrl = $"{instance.UrlServer}/zm/index.php?view=video&eid={eventId}&export=1&user={instance.User}&pass={instance.Password}";
 
         try
         {
             var response = await client.GetAsync(zmUrl, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
 
-            // Atua como um proxy, repassando o stream de vídeo diretamente por enquanto.
             var stream = await response.Content.ReadAsStreamAsync();
             var contentType = response.Content.Headers.ContentType?.ToString() ?? "video/mp4";
-            var fileName = $"recording_{eventId}.mp4";
+            var fileName = $"recording_{instanceId}_{eventId}.mp4";
 
             return File(stream, contentType, fileName);
         }
