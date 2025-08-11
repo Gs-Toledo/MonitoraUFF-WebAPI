@@ -3,8 +3,6 @@ using System.IO.Compression;
 using Microsoft.AspNetCore.Mvc;
 using MonitoraUFF_API.Application.DTOs;
 using MonitoraUFF_API.Core.Interfaces;
-using MonitoraUFF_API.Infrastructure.Services;
-
 namespace MonitoraUFF_API.Controllers;
 
 [ApiController]
@@ -16,6 +14,12 @@ public class ExportController : ControllerBase
     private readonly IZoneMinderService _zoneMinderService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ExportController> _logger;
+
+    private class DownloadedVideo
+    {
+        public string FileName { get; set; }
+        public byte[] Content { get; set; }
+    }
 
     public ExportController(
         ICameraRepository cameraRepository,
@@ -44,6 +48,8 @@ public class ExportController : ControllerBase
 
         try
         {
+
+            var downloadTasks = new List<Task>();
             // O 'using' garante que os recursos sejam liberados, mesmo em caso de erro.
             // O terceiro argumento 'true' mantém o stream aberto para que possa ser lido depois.
             using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
@@ -70,7 +76,7 @@ public class ExportController : ControllerBase
                     }
 
                     // Busca todas as gravações para a câmera e filtra localmente.
-                    var allRecordings = await _zoneMinderService.GetRecordingsForMonitor(instance.UrlServer, instance.User, instance.Password, camera.Id, "");
+                    var allRecordings = await _zoneMinderService.GetRecordingsForMonitor(instance.Id, instance.UrlServer, instance.User, instance.Password, camera.Id);
 
                     var filteredRecordings = allRecordings.Where(r =>
                     {
@@ -87,9 +93,11 @@ public class ExportController : ControllerBase
                     // Adiciona cada gravação filtrada ao ZIP.
                     foreach (var recording in filteredRecordings)
                     {
-                        await AddRecordingToArchive(archive, recording, camera.Name, instance);
+                        downloadTasks.Add(AddRecordingToArchive(archive, recording, camera.Name, instance));
                     }
                 }
+                await Task.WhenAll(downloadTasks);
+
             }
 
             // Reseta a posição do stream para o início para que o cliente possa lê-lo.
@@ -118,7 +126,7 @@ public class ExportController : ControllerBase
 
         // Monta a URL de download direto do ZoneMinder.
         var client = _httpClientFactory.CreateClient();
-        var downloadUrl = $"{instance.UrlServer}/zm/index.php?view=video&eid={recording.EventId}&export=1&user={instance.User}&pass={instance.Password}";
+        var downloadUrl = $"{instance.UrlServer}/index.php?view=video&eid={recording.EventId}&export=1&user={instance.User}&pass={instance.Password}";
 
         try
         {

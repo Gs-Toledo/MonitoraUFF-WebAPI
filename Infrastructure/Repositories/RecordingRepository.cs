@@ -53,4 +53,11 @@ public class RecordingRepository : IRecordingRepository
             await _context.SaveChangesAsync();
         }
     }
+
+    public async Task<Recording> FindByEventIdAsync(int cameraId, string eventId)
+    {
+        return await _context.Recordings
+            .FirstOrDefaultAsync(r => r.CameraId == cameraId && r.EventId == eventId);
+    }
+
 }

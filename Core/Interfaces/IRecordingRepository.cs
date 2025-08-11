@@ -10,4 +10,6 @@ public interface IRecordingRepository
     Task AddAsync(Recording entity);
     Task UpdateAsync(Recording entity);
     Task DeleteAsync(int id);
+    Task<Recording> FindByEventIdAsync(int cameraId, string eventId);
+
 }

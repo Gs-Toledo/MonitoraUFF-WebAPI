@@ -32,9 +32,9 @@ public class RecordingsController : ControllerBase
                        .FirstOrDefault(c => c.Id == cameraId);
         if (camera == null) return NotFound("Câmera não encontrada nesta instância do ZoneMinder.");
 
-        var apiUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}";
+        // var apiUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}";
 
-        var recordings = await _zoneMinderService.GetRecordingsForMonitor(instance.Id, instance.UrlServer, instance.User, instance.Password, camera.Id, apiUrl);
+        var recordings = await _zoneMinderService.GetRecordingsForMonitor(instance.Id, instance.UrlServer, instance.User, instance.Password, camera.Id);
         return Ok(recordings);
     }
 
@@ -48,7 +48,7 @@ public class RecordingsController : ControllerBase
         }
 
         var client = _httpClientFactory.CreateClient();
-        var zmUrl = $"{instance.UrlServer}/zm/index.php?view=video&eid={eventId}&export=1&user={instance.User}&pass={instance.Password}";
+        var zmUrl = $"{instance.UrlServer}/index.php?view=video&eid={eventId}&export=1&user={instance.User}&pass={instance.Password}";
 
         try
         {

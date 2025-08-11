@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using MonitoraUFF_API.BackgroundServices;
 using MonitoraUFF_API.Core.Interfaces;
 using MonitoraUFF_API.Infrastructure.Data;
 using MonitoraUFF_API.Infrastructure.Repositories;
+using MonitoraUFF_API.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +21,28 @@ builder.Services.AddScoped<IZoneminderRepository, ZoneminderRepository>();
 builder.Services.AddScoped<ICameraRepository, CameraRepository>();
 builder.Services.AddScoped<IRecordingRepository, RecordingRepository>();
 
+builder.Services.AddHttpClient();
+
+builder.Services.AddScoped<IZoneMinderService, ZoneMinderService>();
+
+builder.Services.AddHostedService<RecordingSyncService>();
+
+
+var AllowSpecificOrigins = "_myAllowSpecificOrigins";
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(name: AllowSpecificOrigins,
+                      policy =>
+                      {
+                          policy.WithOrigins("http://localhost:5173")
+                                .AllowAnyOrigin() // retirar em prod
+                                .AllowAnyHeader()
+                                .AllowAnyMethod();
+                      });
+});
+
+
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddEndpointsApiExplorer();
@@ -34,6 +58,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors(AllowSpecificOrigins);
 
 app.UseAuthorization();
 

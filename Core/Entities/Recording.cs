@@ -3,6 +3,8 @@
 public class Recording
 {
     public int Id { get; set; }
+
+    public string EventId { get; set; }
     public int CameraId { get; set; } // Chave estrangeira
     public string RecordingUrl { get; set; }
     public DateTime StartTime { get; set; }

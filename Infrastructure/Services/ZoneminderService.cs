@@ -5,21 +5,21 @@ using MonitoraUFF_API.Core.Interfaces;
 
 namespace MonitoraUFF_API.Infrastructure.Services;
 
-public class ZoneMinderClient : IZoneMinderService
+public class ZoneMinderService : IZoneMinderService
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger<ZoneMinderClient> _logger;
+    private readonly ILogger<ZoneMinderService> _logger;
 
-    public ZoneMinderClient(IHttpClientFactory httpClientFactory, ILogger<ZoneMinderClient> logger)
+    public ZoneMinderService(IHttpClientFactory httpClientFactory, ILogger<ZoneMinderService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
-    public async Task<List<RecordingDto>> GetRecordingsForMonitor(int instanceId, string baseUrl, string user, string password, int monitorId, string apiUrl)
+    public async Task<List<RecordingDto>> GetRecordingsForMonitor(int instanceId, string baseUrl, string user, string password, int monitorId)
     {
         var client = _httpClientFactory.CreateClient();
-        var requestUrl = $"{baseUrl}/zm/api/events/index/MonitorId:{monitorId}.json?user={user}&pass={password}";
+        var requestUrl = $"{baseUrl}/api/events/index/MonitorId:{monitorId}.json?user={user}&pass={password}";
 
         try
         {
@@ -36,14 +36,15 @@ public class ZoneMinderClient : IZoneMinderService
 
             return events.Select(e =>
             {
-                var eventId = e.GetProperty("Event").GetProperty("Id").GetString();
+                var eventId = e.GetProperty("Event").GetProperty("Id").ToString();
+                var apiUrl = "https://localhost:7171";
                 return new RecordingDto
                 {
                     EventId = eventId,
                     Name = e.GetProperty("Event").GetProperty("Name").GetString(),
                     StartTime = e.GetProperty("Event").GetProperty("StartTime").GetString(),
-                    Length = e.GetProperty("Event").GetProperty("Length").GetString(),
-                    Frames = int.Parse(e.GetProperty("Event").GetProperty("Frames").GetString()),
+                    Length = e.GetProperty("Event").GetProperty("Length").ToString(),
+                    Frames = int.Parse(e.GetProperty("Event").GetProperty("Frames").ToString()),
                     DownloadUrl = $"{apiUrl}/api/recordings/instance/{instanceId}/download/{eventId}"
                 };
             }).ToList();
