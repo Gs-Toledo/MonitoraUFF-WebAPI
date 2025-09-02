@@ -34,7 +34,7 @@ public class RecordingsController : ControllerBase
 
         // var apiUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}";
 
-        var recordings = await _zoneMinderService.GetRecordingsForMonitor(instance.Id, instance.UrlServer, instance.User, instance.Password, camera.Id);
+        var recordings = await _zoneMinderService.GetRecordingsForMonitor(instance, camera.Id);
         return Ok(recordings);
     }
 

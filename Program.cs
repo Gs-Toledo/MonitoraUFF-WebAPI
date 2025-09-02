@@ -23,6 +23,11 @@ builder.Services.AddScoped<IRecordingRepository, RecordingRepository>();
 
 builder.Services.AddHttpClient();
 
+builder.Services.AddHttpClient("ZoneminderVideoClient", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(10);
+});
+
 builder.Services.AddScoped<IZoneMinderService, ZoneMinderService>();
 
 builder.Services.AddHostedService<RecordingSyncService>();

@@ -40,7 +40,7 @@ public class RecordingSyncService : BackgroundService
                         var cameras = await cameraRepo.GetByZoneminderInstanceIdAsync(instance.Id);
                         foreach (var camera in cameras)
                         {
-                            var zmRecordings = await zmService.GetRecordingsForMonitor(instance.Id, instance.UrlServer, instance.User, instance.Password, camera.Id);
+                            var zmRecordings = await zmService.GetRecordingsForMonitor(instance, camera.Id);
 
                             foreach (var zmRecording in zmRecordings)
                             {

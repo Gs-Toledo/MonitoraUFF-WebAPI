@@ -2,6 +2,7 @@
 using System.IO.Compression;
 using Microsoft.AspNetCore.Mvc;
 using MonitoraUFF_API.Application.DTOs;
+using MonitoraUFF_API.Core.Entities;
 using MonitoraUFF_API.Core.Interfaces;
 namespace MonitoraUFF_API.Controllers;
 
@@ -12,7 +13,6 @@ public class ExportController : ControllerBase
     private readonly ICameraRepository _cameraRepository;
     private readonly IZoneminderRepository _zoneminderRepository;
     private readonly IZoneMinderService _zoneMinderService;
-    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ExportController> _logger;
 
     private class DownloadedVideo
@@ -25,13 +25,11 @@ public class ExportController : ControllerBase
         ICameraRepository cameraRepository,
         IZoneminderRepository zoneminderRepository,
         IZoneMinderService zoneMinderService,
-        IHttpClientFactory httpClientFactory,
         ILogger<ExportController> logger)
     {
         _cameraRepository = cameraRepository;
         _zoneminderRepository = zoneminderRepository;
         _zoneMinderService = zoneMinderService;
-        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -43,108 +41,73 @@ public class ExportController : ControllerBase
             return BadRequest("A lista de IDs de câmera não pode ser vazia.");
         }
 
-        //  MemoryStream para criar o arquivo ZIP em memória.
-        var memoryStream = new MemoryStream();
-
-        try
+        var downloadTasks = new List<Task<DownloadedVideo>>();
+        foreach (var cameraIdentifier in request.Cameras)
         {
+            var instance = await _zoneminderRepository.GetByIdAsync(cameraIdentifier.ZoneminderInstanceId);
+            var camera = (await _cameraRepository.GetByZoneminderInstanceIdAsync(cameraIdentifier.ZoneminderInstanceId))
+                           .FirstOrDefault(c => c.Id == cameraIdentifier.CameraId);
 
-            var downloadTasks = new List<Task>();
-            // O 'using' garante que os recursos sejam liberados, mesmo em caso de erro.
-            // O terceiro argumento 'true' mantém o stream aberto para que possa ser lido depois.
+            if (instance == null || camera == null) continue;
+
+            var allRecordings = await _zoneMinderService.GetRecordingsForMonitor(instance, camera.Id);
+            var filteredRecordings = allRecordings.Where(r => DateTime.TryParse(r.StartTime, out var d) && d >= request.StartDate && d <= request.EndDate).ToList();
+
+            foreach (var recording in filteredRecordings)
+            {
+                downloadTasks.Add(DownloadRecordingDataAsync(recording, camera.Name, instance));
+            }
+        }
+
+        var downloadedVideos = await Task.WhenAll(downloadTasks);
+
+        byte[] zipBytes;
+
+        //  MemoryStream para criar o arquivo ZIP em memória.
+        using (var memoryStream = new MemoryStream())
+        {
+            // Cria o arquivo ZIP dentro do memoryStream
             using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
             {
-                foreach (var cameraIdentifier in request.Cameras)
+                foreach (var videoData in downloadedVideos)
                 {
-                    var instance = await _zoneminderRepository.GetByIdAsync(cameraIdentifier.ZoneminderInstanceId);
-                    if (instance == null)
+                    if (videoData?.Content == null) continue;
+
+                    var zipEntry = archive.CreateEntry(videoData.FileName, CompressionLevel.Optimal);
+                    using (var zipEntryStream = zipEntry.Open())
                     {
-                        _logger.LogWarning("Exportação pulou a câmera ID {CameraId} pois sua instância ZM (ID: {InstanceId}) não foi encontrada.",
-                            cameraIdentifier.CameraId, cameraIdentifier.ZoneminderInstanceId);
-                        continue;
-                    }
-
-                    // Busca a câmera específica dentro da instância correta
-                    var camera = (await _cameraRepository.GetByZoneminderInstanceIdAsync(instance.Id))
-                                   .FirstOrDefault(c => c.Id == cameraIdentifier.CameraId);
-
-                    if (camera == null)
-                    {
-                        _logger.LogWarning("Exportação pulou a câmera ID {CameraId} pois não foi encontrada na instância {InstanceName} (ID: {InstanceId}).",
-                            cameraIdentifier.CameraId, instance.UrlServer, instance.Id);
-                        continue;
-                    }
-
-                    // Busca todas as gravações para a câmera e filtra localmente.
-                    var allRecordings = await _zoneMinderService.GetRecordingsForMonitor(instance.Id, instance.UrlServer, instance.User, instance.Password, camera.Id);
-
-                    var filteredRecordings = allRecordings.Where(r =>
-                    {
-                        // Tenta converter a data da gravação para DateTime para poder comparar.
-                        if (DateTime.TryParse(r.StartTime, out DateTime recordingDate))
-                        {
-                            return recordingDate >= request.StartDate && recordingDate <= request.EndDate;
-                        }
-                        return false;
-                    }).ToList();
-
-                    if (!filteredRecordings.Any()) continue;
-
-                    // Adiciona cada gravação filtrada ao ZIP.
-                    foreach (var recording in filteredRecordings)
-                    {
-                        downloadTasks.Add(AddRecordingToArchive(archive, recording, camera.Name, instance));
+                        // Escreve o conteúdo do vídeo (já em memória) para o arquivo ZIP
+                        await zipEntryStream.WriteAsync(videoData.Content);
                     }
                 }
-                await Task.WhenAll(downloadTasks);
+            } // O 'using' do archive garante que tudo seja finalizado no memoryStream
 
-            }
-
-            // Reseta a posição do stream para o início para que o cliente possa lê-lo.
-            memoryStream.Seek(0, SeekOrigin.Begin);
-
-            // Retorna o arquivo ZIP.
-            return File(memoryStream, "application/zip", $"export_{DateTime.Now:yyyy-MM-dd_HH-mm}.zip");
+            // Converte o stream finalizado para um array de bytes
+            zipBytes = memoryStream.ToArray();
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ocorreu um erro fatal durante a criação do arquivo ZIP.");
-            // Se um erro ocorrer, o memoryStream pode precisar ser descartado para liberar recursos.
-            await memoryStream.DisposeAsync();
-            return StatusCode(500, "Ocorreu um erro interno ao gerar o arquivo de exportação.");
-        }
+
+        return File(zipBytes, "application/zip", $"export_{DateTime.Now:yyyy-MM-dd_HH-mm}.zip");
     }
 
-    private async Task AddRecordingToArchive(ZipArchive archive, RecordingDto recording, string cameraName, Core.Entities.ZoneminderInstance instance)
+    private async Task<DownloadedVideo> DownloadRecordingDataAsync(RecordingDto recording, string cameraName, ZoneminderInstance instance)
     {
-        // Formata o nome do arquivo conforme o padrão definido.
-        string fileName = FormatFileName(recording, cameraName);
-        if (string.IsNullOrEmpty(fileName)) return;
-
-        // Cria uma nova entrada no arquivo ZIP (ex: "nome_da_camera/gravacao.mp4").
-        var zipEntry = archive.CreateEntry(Path.Combine(cameraName, fileName), CompressionLevel.Optimal);
-
-        // Monta a URL de download direto do ZoneMinder.
-        var client = _httpClientFactory.CreateClient();
-        var downloadUrl = $"{instance.UrlServer}/index.php?view=video&eid={recording.EventId}&export=1&user={instance.User}&pass={instance.Password}";
-
-        try
         {
-            // Baixa o vídeo como um stream.
-            var response = await client.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
+            string fileName = FormatFileName(recording, cameraName);
+            if (string.IsNullOrEmpty(fileName)) return null;
 
-            using (var videoStream = await response.Content.ReadAsStreamAsync())
-            using (var zipEntryStream = zipEntry.Open())
+            try
             {
-                // Copia o stream do vídeo diretamente para o stream da entrada do ZIP.
-                // Importante para não carregar o vídeo inteiro na memória.
-                await videoStream.CopyToAsync(zipEntryStream);
+                var content = await _zoneMinderService.DownloadVideoAsync(instance, recording.EventId);
+
+                if (content == null) return null;
+
+                return new DownloadedVideo { FileName = Path.Combine(cameraName, fileName), Content = content };
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Falha ao baixar ou adicionar a gravação {EventId} da câmera {CameraName} ao ZIP.", recording.EventId, cameraName);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falha ao processar o download da gravação {EventId} da câmera {CameraName}.", recording.EventId, cameraName);
+                return null;
+            }
         }
     }
 
